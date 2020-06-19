@@ -12,6 +12,10 @@ PUSH = 0b01000101
 POP = 0b01000110
 RET = 0b00010001
 CALL = 0b01010000
+CMP = 0b10100111
+JMP = 0b01010100
+JEQ = 0b01010101
+JNE = 0b01010110
 
 class CPU:
     """Main CPU class."""
@@ -30,6 +34,8 @@ class CPU:
         # program counter (pc) starts at 0
         self.program_counter = 0
         self.running = False
+        # 0b00000LGE - initialize LGE as 0
+        self.flag = 0b00000000
 
         self.stack_pointer = 7
         # branch table
@@ -42,7 +48,12 @@ class CPU:
             PUSH: self.PUSH,
             POP: self.POP,
             RET: self.RET,
-            CALL: self.CALL
+            CALL: self.CALL,
+            CMP: self.CMP,
+            JMP: self.JMP,
+            JEQ: self.JEQ,
+            JNE: self.JNE,
+
         }
 
     def load(self, filename):
@@ -64,13 +75,27 @@ class CPU:
                 address += 1
 
 
-    def alu(self, op, reg_a, reg_b):
+    def alu(self, op, reg_a=None, reg_b=None):
         """ALU operations."""
 
         if op == "ADD":
             self.register[reg_a] += self.register[reg_b]
         elif op == "MUL":
             self.register[reg_a] *= self.register[reg_b]
+        elif op == "CMP":
+            if self.register[reg_a] == self.register[reg_b]:
+                # set E flag to 1 in 0b00000LGE
+                self.flag = 0b00000001
+
+            elif self.register[reg_a] < self.register[reg_b]:
+                # set L flag to 1 in 0b00000LGE
+                self.flag = 0b00000100
+
+            elif self.register[reg_a] > self.register[reg_b]:
+                # set G flag to 1 in 0b00000LGE
+                self.flag = 0b00000010
+
+
         else:
             raise Exception("Unsupported ALU operation")
 
@@ -151,6 +176,7 @@ class CPU:
 
         self.program_counter += 3
 
+    # multiply
     def MUL(self):
         operand_a = self.ram_read(self.program_counter + 1)
         operand_b = self.ram_read(self.program_counter + 2)
@@ -159,30 +185,33 @@ class CPU:
 
         self.program_counter += 3
 
+    # push
     def PUSH(self):
         sp = self.stack_pointer
         self.register[sp] -= 1
 
-        reg_num = self.ram_read(self.program_counter + 1)
-        value = self.register[reg_num]
+        register_number = self.ram_read(self.program_counter + 1)
+        value = self.register[register_number]
 
         stack_addr = self.register[sp]
         self.ram_write(value, stack_addr)
 
         self.program_counter += 2
 
+    # pop
     def POP(self):
         # this is where we'll store the value at self.ram[sp]
         sp = self.stack_pointer
         stack_addr = self.register[self.stack_pointer]
 
-        reg_num = self.ram_read(self.program_counter + 1)
+        register_number = self.ram_read(self.program_counter + 1)
         value = self.ram_read(stack_addr)
 
-        self.register[reg_num] = value
+        self.register[register_number] = value
         self.register[sp] += 1
         self.program_counter += 2
 
+    # call
     def CALL(self):
         #  Where we're going to RET to
         return_address = self.program_counter + 2
@@ -192,19 +221,58 @@ class CPU:
         self.ram_write(return_address, self.register[self.stack_pointer])
 
         # Get the address to call
-        reg_num = self.ram_read(self.program_counter + 1)
-        subroutine_address = self.register[reg_num]
+        register_number = self.ram_read(self.program_counter + 1)
+        subroutine_address = self.register[register_number]
         
         # Call it
         self.program_counter = subroutine_address
 
+    # return
     def RET(self):
         # Pop the value from the top of the stack and store it in the `PC`.
         self.program_counter = self.ram_read(self.register[self.stack_pointer])
         self.register[self.stack_pointer] += 1
 
+    # compare
+    def CMP(self):
+        operand_a = self.ram_read(self.program_counter + 1)
+        operand_b = self.ram_read(self.program_counter + 2)
 
+        self.alu("CMP", operand_a, operand_b)
 
+        self.program_counter += 3
+
+    # unconditional jump
+    def JMP(self):
+        # Jump to the address stored in the given register.
+        register_number = self.ram_read(self.program_counter + 1)
+        # Set the `PC` to the address stored in the given register.
+        self.program_counter = self.register[register_number]
+
+    # conditional jump: equal
+    def JEQ(self):
+        # If `equal` flag is set (true), jump to the address stored in the given register.
+        equal_fl = self.flag
+        
+        if equal_fl == 1: 
+            register_number = self.ram_read(self.program_counter + 1)
+            jump_address = self.register[register_number]
+
+            self.program_counter = jump_address
+        else:
+            self.program_counter += 2
+
+    # conditional jump: if not equal
+    def JNE(self):
+        # If `E` flag is clear (false, 0), jump to the address stored in the given register.
+        equal_fl = self.flag
+        
+        if equal_fl != 1: 
+            register_number = self.ram_read(self.program_counter + 1)
+            jump_address = self.register[register_number]
+            self.program_counter = jump_address
+        else:
+            self.program_counter += 2
 
 
 
